@@ -5,7 +5,11 @@
   <title>Neo4j 图可视化</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    svg { width: 100%; height: 800px; }
+    svg {
+      width: 100%;  /* 占满容器宽度 */
+      height: 800px; /* 固定高度 */
+      border: 1px solid #eee; /* 可选：添加边框便于观察 */
+    }
     circle { fill: #4285F4; stroke: #fff; stroke-width: 2px; }
     line { stroke: #999; stroke-width: 1.5px; }
     text { font-size: 12px; fill: #333; }
@@ -15,45 +19,91 @@
   <svg></svg>
   <script>
     d3.json("graph.json").then(data => {
+      // 假设graph.json结构为包含nodes和links的对象数组
+      // 如果实际结构不同（如直接是{nodes: [], links: []}），可删除此转换
+      const graph = {
+        nodes: data.filter(item => item.type === "node"), // 假设节点有type标识
+        links: data.filter(item => item.type === "relationship") // 假设关系有type标识
+      };
+
       const svg = d3.select("svg");
-      const width = +svg.attr("width");
-      const height = +svg.attr("height");
+      // 获取SVG实际宽高（基于CSS设置）
+      const width = svg.node().clientWidth;
+      const height = svg.node().clientHeight;
 
       // 力导向图布局
-      const simulation = d3.forceSimulation(data.nodes)
-        .force("link", d3.forceLink(data.links).id(d => d.id))
-        .force("charge", d3.forceManyBody().strength(-1000))
-        .force("center", d3.forceCenter(width / 2, height / 2));
+      const simulation = d3.forceSimulation(graph.nodes)
+        .force("link", d3.forceLink(graph.links).id(d => d.id).distance(100)) // 增加连线距离
+        .force("charge", d3.forceManyBody().strength(-300)) // 调整排斥力（数值越大排斥越强）
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("collide", d3.forceCollide().radius(30)); // 避免节点重叠
 
       // 绘制关系
       const link = svg.selectAll("line")
-        .data(data.links)
+        .data(graph.links)
         .enter().append("line")
-        .attr("stroke", "#999");
+        .attr("stroke", "#999")
+        .attr("stroke-opacity", 0.6); // 增加透明度
 
       // 绘制节点
       const node = svg.selectAll("circle")
-        .data(data.nodes)
+        .data(graph.nodes)
         .enter().append("circle")
-        .attr("r", 10)
+        .attr("r", 15) // 适当增大节点
         .call(d3.drag()
-          .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-          .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
-          .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended));
 
-      // 节点标签（鼠标悬停显示）
-      node.append("title")
-        .text(d => `${d.id}\n${d.properties.name || ""}`);
+      // 节点标签（直接显示，而非仅悬停）
+      const label = svg.selectAll("text")
+        .data(graph.nodes)
+        .enter().append("text")
+        .attr("dx", 20) // 文本偏移
+        .attr("dy", ".3em")
+        .text(d => d.properties?.name || d.id); // 优先显示name，无则显示id
+
+      // 拖拽相关函数（提取为单独函数，提高可读性）
+      function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
 
       // 位置更新
       simulation.on("tick", () => {
+        // 限制节点在SVG范围内
+        graph.nodes.forEach(d => {
+          d.x = Math.max(30, Math.min(width - 30, d.x));
+          d.y = Math.max(30, Math.min(height - 30, d.y));
+        });
+
         link.attr("x1", d => d.source.x)
           .attr("y1", d => d.source.y)
           .attr("x2", d => d.target.x)
           .attr("y2", d => d.target.y);
+
         node.attr("cx", d => d.x)
           .attr("cy", d => d.y);
+
+        label.attr("x", d => d.x)
+          .attr("y", d => d.y);
       });
+    }).catch(error => {
+      // 增加错误处理
+      console.error("加载数据失败:", error);
+      alert("无法加载graph.json，请检查文件路径是否正确");
     });
   </script>
 </body>
